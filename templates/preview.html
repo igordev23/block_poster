@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <title>Pré-visualização</title>
+    <style>
+        .container {
+            text-align: center;
+            max-width: 90vw; /* Limita a largura da div à largura da janela */
+            margin: 0 auto;
+        }
+        canvas {
+            max-width: 100%; /* Ajusta a largura do canvas para caber na div */
+            height: auto; /* Mantém a proporção da altura */
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        Pré-visualização da Imagem
+    </header>
+    <div class="container">
+        <h2>Imagem Carregada</h2>
+        <canvas id="previewCanvas"></canvas>
+
+        <p>Tamanho da Imagem: {{ image_size[0] }} x {{ image_size[1] }}</p>
+        <p id="previewDetails">Colunas: -, Linhas: -</p>
+        <p id="sizeApproximation">Tamanho Aproximado: - cm x - cm</p> <!-- Parágrafo adicionado para tamanho aproximado -->
+
+        <form id="previewForm" action="/process" method="post">
+            <label for="cols">Colunas:</label>
+            <input type="number" id="cols" name="cols" min="1" required>
+
+            <label for="orientation">Orientação do PDF:</label>
+            <select id="orientation" name="orientation">
+                <option value="portrait">Retrato</option>
+                <option value="landscape">Paisagem</option>
+            </select>
+
+            <label for="borders">
+                <input type="checkbox" id="borders" name="borders">
+                Incluir bordas nos PDFs
+            </label>
+
+            <button type="button" id="updatePreview">Atualizar Pré-visualização</button>
+            <button type="submit">Processar Imagem</button>
+        </form>
+    </div>
+    <script>
+        const imageSrc = "{{ url_for('uploaded_file', filename=image_path) }}";
+        const imageWidth = {{ image_size[0] }};
+        const imageHeight = {{ image_size[1] }};
+
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const maxCanvasWidth = window.innerWidth * 0.8; // 80% da largura da tela
+        const maxCanvasHeight = window.innerHeight * 0.6; // 60% da altura da tela
+
+        const widthScale = maxCanvasWidth / imageWidth;
+        const heightScale = maxCanvasHeight / imageHeight;
+        const scale = Math.min(widthScale, heightScale, 1);
+
+        canvas.width = imageWidth * scale;
+        canvas.height = imageHeight * scale;
+
+        const image = new Image();
+        image.src = imageSrc;
+
+        image.onload = () => {
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        };
+
+        function updateLandscapePreview(cols, imageWidth, imageHeight, ctx, canvas) {
+            const rows = Math.ceil(cols * (imageHeight / imageWidth)); // Calcula linhas para paisagem
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+            const tileWidth = canvas.width / cols;
+            const tileHeight = canvas.height / rows;
+
+            // Desenhar linhas horizontais
+            for (let i = 1; i < rows; i++) {
+                const y = i * tileHeight;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.strokeStyle = 'blue';
+                ctx.stroke();
+            }
+
+            // Desenhar linhas verticais
+            for (let i = 1; i < cols; i++) {
+                const x = i * tileWidth;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.strokeStyle = 'blue';
+                ctx.stroke();
+            }
+
+            return rows;
+        }
+
+        function updatePortraitPreview(cols, imageWidth, imageHeight, ctx, canvas) {
+            // Proporção da folha A4 em retrato (altura/largura)
+            const a4Ratio = 297 / 210;
+
+            // Calcula a altura esperada de cada coluna
+            const expectedTileHeight = (imageWidth / cols) * a4Ratio;
+
+            // Calcula o número de linhas necessárias
+            const rows = Math.ceil(imageHeight / expectedTileHeight);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+            const tileWidth = canvas.width / cols;
+            const tileHeight = canvas.height / rows;
+
+            // Desenha linhas horizontais (somente se rows > 1)
+            if (rows > 1) {
+                for (let i = 1; i < rows; i++) {
+                    const y = i * tileHeight;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                    ctx.strokeStyle = 'blue';
+                    ctx.stroke();
+                }
+            }
+
+            // Desenha linhas verticais
+            for (let i = 1; i < cols; i++) {
+                const x = i * tileWidth;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.strokeStyle = 'blue';
+                ctx.stroke();
+            }
+
+            // Retorna o número de linhas calculadas
+            return rows;
+        }
+
+        function updateSizeApproximation(cols, rows, orientation) {
+        const a4WidthCm = 21.0; // Largura da folha A4 em cm
+        const a4HeightCm = 29.7; // Altura da folha A4 em cm
+
+        let tileWidthCm, tileHeightCm;
+
+        // Para Paisagem (landscape), inverte-se a lógica para garantir que mais colunas ou linhas aumentam o tamanho da célula
+        if (orientation === 'landscape') {
+            tileWidthCm = a4WidthCm * cols;  // A largura da célula será maior com mais colunas
+            tileHeightCm = a4HeightCm * rows;  // A altura da célula será maior com mais linhas
+        } else {
+            tileWidthCm = a4WidthCm * cols;  // A largura da célula será maior com mais colunas
+            tileHeightCm = a4HeightCm * rows;  // A altura da célula será maior com mais linhas
+        }
+
+        // Atualiza o parágrafo com o tamanho aproximado
+        document.getElementById('sizeApproximation').innerText = 
+            `Tamanho Aproximado: ${tileWidthCm.toFixed(2)} cm de largura x ${tileHeightCm.toFixed(2)} cm de altura`;
+    }
+        document.getElementById('updatePreview').addEventListener('click', () => {
+            const cols = parseInt(document.getElementById('cols').value, 10) || 1;
+            const orientation = document.getElementById('orientation').value;
+
+            let rows;
+            if (orientation === 'landscape') {
+                rows = updateLandscapePreview(cols, imageWidth, imageHeight, ctx, canvas);
+            } else {
+                rows = updatePortraitPreview(cols, imageWidth, imageHeight, ctx, canvas);
+            }
+
+            // Exibir detalhes atualizados
+            document.getElementById('previewDetails').innerText = `Colunas: ${cols}, Linhas: ${rows}`;
+
+            // Atualizar o tamanho aproximado
+            updateSizeApproximation(cols, rows, orientation);
+        });
+
+    </script>
+</body>
+</html>
